@@ -57,13 +57,13 @@ python train.py \
 
 The CSV workflow uses numeric columns as features and the selected target column as the label. For S3, prefer mounting the bucket/prefix as a Renku data connector and passing the mounted file path to `--data-path`.
 
-## Running this as a RenkuLab job
+## Running a RenkuLab job
 
-This project is meant to be copied and run as a non-interactive RenkuLab job.
+This project demonstrates how to run non-interactive RenkuLab jobs.
 
 1. Open the project: <https://renkulab.io/p/rok.roskar/jobs-example>
 2. Copy the project to your own RenkuLab namespace.
-3. Install the Renku CLI on your local machine, `rnk`, from <https://github.com/swissdatasciencecenter/renku-cli>.
+3. Install the Renku CLI on your local machine, `rnk` (version `>=0.4.0`), by downloading the appropriate binary from <https://github.com/swissdatasciencecenter/renku-cli/releases>.
 4. Log in to RenkuLab from your terminal:
 
    ```bash
@@ -83,7 +83,54 @@ The launcher uses the command from the `Procfile`:
 python train.py --dataset uci-optdigits --output-path public --epochs 30
 ```
 
+Helpful commands:
+
+* To check the job: `rnk job list`
+* To fetch the logs: `rnk job logs <JOB_NAME>`
+
 When the job finishes, the generated model, metrics, plots, and report are written to the `public/` output folder.
+
+### Image configuration
+
+The linked [repository](https://github.com/rokroskar/ml-job-demo) includes a python
+`requirements.txt` and a `Procfile` - these are picked up by the image build process to
+
+* install dependencies (`requirements.txt`)
+* configure the job command (`Procfile`)
+
+You can use a similar setup in your own projects to specify how the job should
+run and with which packages.
+
+### Note on launchers
+
+The launcher in the project was built from code but then converted to an "external"
+environment in order to specify the entrypoint. If you need to rebuild the image,
+you have to switch it back to "build from code", rebuild, and then switch back
+to "external" to set the entrypoint.
+
+
+## Current limitations
+
+Non-interactive jobs are currently an alpha feature - we are making them available
+but hidden in order to gather experience and feedback.
+
+Current known limitations:
+
+* logs will not persist for a predictable amount of time; if the node that the
+  job ran on is removed because of auto-scaling, the logs are gone
+
+* only run one job per launcher
+
+* no dynamic modifications to command line arguments from `rnk` - they have to
+  be made in the launcher itself
+
+* no launcher configuration from the CLI; you must use the UI to configure the
+  launcher
+
+* no support in the UI - this is coming in June, so stay tuned!
+
+* the built image will always include the frontend even if not using it; we
+  recommend using ttyd as it is very minimal and can be useful for debugging
 
 ## Local test
 
