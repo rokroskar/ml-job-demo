@@ -57,6 +57,34 @@ python train.py \
 
 The CSV workflow uses numeric columns as features and the selected target column as the label. For S3, prefer mounting the bucket/prefix as a Renku data connector and passing the mounted file path to `--data-path`.
 
+## Running this as a RenkuLab job
+
+This project is meant to be copied and run as a non-interactive RenkuLab job.
+
+1. Open the project: <https://renkulab.io/p/rok.roskar/jobs-example>
+2. Copy the project to your own RenkuLab namespace.
+3. Install the Renku CLI on your local machine, `rnk`, from <https://github.com/swissdatasciencecenter/renku-cli>.
+4. Log in to RenkuLab from your terminal:
+
+   ```bash
+   rnk login
+   ```
+
+5. In your copied project, open the job/session launcher you want to use and copy its launcher ID from the URL bar.
+6. Start the non-interactive job from your terminal:
+
+   ```bash
+   rnk job start <LAUNCHER_ID>
+   ```
+
+The launcher uses the command from the `Procfile`:
+
+```bash
+python train.py --dataset uci-optdigits --output-path public --epochs 30
+```
+
+When the job finishes, the generated model, metrics, plots, and report are written to the `public/` output folder.
+
 ## Local test
 
 ```bash
