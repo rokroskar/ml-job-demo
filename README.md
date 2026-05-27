@@ -1,80 +1,76 @@
 # RenkuLab non-interactive PyTorch MNIST job demo
 
-This repository is a minimal example for running a non-interactive RenkuLab job with a Python environment built from code.
+This project demonstrates how to run a non-interactive training job on RenkuLab.
+It trains a small PyTorch neural network on the MNIST handwritten-digits dataset and writes the trained model, metrics, plots, and predictions to an output folder.
 
-It contains:
+The project is intentionally small. The repository only contains:
 
-- `requirements.txt` for the Python environment
-- `train.py` for the training workflow
+- `requirements.txt` — the Python dependencies used to build the image
+- `train.py` — the training script
 
-The job trains a small PyTorch neural network on MNIST. The input data is provided through a Renku global DOI data connector for this Zenodo record:
+## What this example shows
 
-```text
-https://zenodo.org/records/10058130
-DOI: 10.5281/zenodo.10058130
-```
+This example combines three RenkuLab features:
 
-MNIST is analogous to the earlier handwritten-digits example, but larger: 28x28 grayscale digit images instead of the smaller 8x8 optical-digits dataset.
+1. **Build from code** — RenkuLab builds a Python image from this repository.
+2. **Data connectors** — the MNIST input data is mounted from Zenodo through a Renku DOI data connector.
+3. **Non-interactive jobs** — the training script runs as a batch job instead of an interactive session.
+
+The MNIST data comes from this Zenodo record:
+
+<https://zenodo.org/records/10058130>
+
+DOI: `10.5281/zenodo.10058130`
+
+MNIST is a classic handwritten-digit image dataset. It is similar in spirit to the smaller optical-digits dataset often used in scikit-learn examples, but it contains larger 28×28 grayscale images.
 
 ## Data connector
 
-The project links a global DOI data connector:
+The project links a global DOI data connector named **MNIST dataset**. In the job, RenkuLab mounts it at:
 
-- Connector: `MNIST dataset`
-- Connector ID: `01KSMPWWWAA5W1NTHWXM4TQ5BC`
-- Project link ID: `01KSMPX86FC61GR89V4BPXAQTJ`
-- Mounted path in the job: `/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130`
-
-The training script expects the standard MNIST IDX files in that mounted directory, for example:
-
-- `train-images-idx3-ubyte` or `train-images-idx3-ubyte.gz`
-- `train-labels-idx1-ubyte` or `train-labels-idx1-ubyte.gz`
-- `t10k-images-idx3-ubyte` or `t10k-images-idx3-ubyte.gz`
-- `t10k-labels-idx1-ubyte` or `t10k-labels-idx1-ubyte.gz`
-
-## How the Renku launcher is configured
-
-The image is built from this repository using `requirements.txt`. The job command is **not** configured with a `Procfile`. Instead, after the image has been built, the Renku launcher uses the CNB launcher directly.
-
-Use this launcher environment configuration pattern:
-
-```json
-{
-  "environment_image_source": "image",
-  "environment_kind": "CUSTOM",
-  "container_image": "<built-image>",
-  "working_directory": "/home/renku/work",
-  "mount_directory": "/home/renku/work",
-  "command": ["/cnb/lifecycle/launcher"],
-  "args": [
-    "python",
-    "/home/renku/work/ml-job-demo/train.py",
-    "--dataset",
-    "mnist",
-    "--mnist-path",
-    "/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130",
-    "--output-path",
-    "/home/renku/work/output",
-    "--epochs",
-    "10"
-  ]
-}
+```text
+/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130
 ```
 
-This avoids relying on Procfile process types and makes the actual job command explicit in the launcher.
+The training script looks for the standard MNIST files in that mounted folder, for example `train-images-idx3-ubyte.gz` and `train-labels-idx1-ubyte.gz`.
+
+When running locally, that RenkuLab mount path will not exist. In that case, the script automatically streams the same MNIST files directly from Zenodo, so local testing still works.
+
+## Job launcher setup
+
+The job does not use a `Procfile`. Instead, the RenkuLab launcher is configured to run the built image with the Cloud Native Buildpacks launcher and pass the training command as arguments.
+
+Conceptually, the launcher runs:
+
+```bash
+python /home/renku/work/ml-job-demo/train.py \
+  --dataset mnist \
+  --output-path /home/renku/work/output \
+  --epochs 10
+```
+
+The image entrypoint is set to the CNB launcher:
+
+```text
+/cnb/lifecycle/launcher
+```
+
+This makes the job command explicit in the launcher configuration and avoids relying on Procfile process types.
 
 ## Outputs
 
-The job writes the following artifacts to the configured output path:
+The job writes the following artifacts to the configured output folder:
 
-- `model.pt`
-- `metrics.json`
-- `report.md`
-- `training_history.csv`
-- `training_curve.png`
-- `confusion_matrix.png`
-- `sample_predictions.png`
-- `predictions.csv`
+- `model.pt` — trained PyTorch model state and metadata
+- `metrics.json` — accuracy and classification metrics
+- `report.md` — short human-readable summary
+- `training_history.csv` — loss and accuracy by epoch
+- `training_curve.png` — training progress plot
+- `confusion_matrix.png` — test-set confusion matrix
+- `sample_predictions.png` — sample digit predictions
+- `predictions.csv` — test-set predictions
+
+The job logs also print the final accuracy and total runtime.
 
 ## Running the example on RenkuLab
 
@@ -94,18 +90,25 @@ The job writes the following artifacts to the configured output path:
    rnk job start <LAUNCHER_ID>
    ```
 
-Helpful commands:
+Useful commands:
 
 ```bash
 rnk job list
 rnk job logs <JOB_NAME>
 ```
 
-When the job finishes, the generated model, metrics, plots, and report are written to the output folder configured in the launcher.
+When the job finishes, inspect the output folder to see the generated model, metrics, plots, and report.
 
-## Note on rebuilding the image
+## Rebuilding the image
 
-The current launcher uses a built image as an external/custom image so that the command and args can be set explicitly. If you change `requirements.txt` and need to rebuild the image, switch the launcher back to build-from-code, rebuild, then switch it back to an external/custom image using the built image and the command/args configuration above.
+The current launcher uses a previously built image as a custom image so that the command and arguments can be set explicitly.
+
+If you change `requirements.txt` or otherwise need to rebuild the image:
+
+1. Switch the launcher back to build-from-code.
+2. Rebuild the image from this repository.
+3. Switch the launcher back to a custom image using the newly built image.
+4. Keep the command as `/cnb/lifecycle/launcher` and the arguments as the training command shown above.
 
 ## Current limitations
 
@@ -120,14 +123,6 @@ Non-interactive jobs are currently an alpha feature. Known limitations:
 
 ## Local test
 
-The default `--mnist-path` is the RenkuLab data connector mount:
-
-```text
-/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130
-```
-
-For local testing, that mount will usually not exist, so the script can stream the MNIST files directly from Zenodo when the connector mount is not present:
-
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -135,4 +130,4 @@ pip install -r requirements.txt
 python train.py --dataset mnist --output-path public --epochs 1
 ```
 
-In RenkuLab, the default `--mnist-source auto` will use the mounted connector path when it is available; locally it falls back to streaming from Zenodo.
+Locally, the script will stream MNIST from Zenodo if the RenkuLab connector mount is not available.
