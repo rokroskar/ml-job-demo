@@ -24,9 +24,9 @@ DOI: `10.5281/zenodo.10058130`
 
 MNIST is a classic handwritten-digit image dataset. It is similar in spirit to the smaller optical-digits dataset often used in scikit-learn examples, but it contains larger 28×28 grayscale images.
 
-## Data connectors
+## Data connector
 
-The project uses data connectors for both inputs and outputs:
+The project uses one input data connector:
 
 - **MNIST dataset** — a global DOI connector for the Zenodo MNIST record. This is mounted read-only at:
 
@@ -34,25 +34,11 @@ The project uses data connectors for both inputs and outputs:
   /home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130
   ```
 
-- **Job output storage** — a private writable Polybox connector mounted at:
-
-  ```text
-  /home/renku/work/output
-  ```
-
-  The job writes its generated artifacts here.
-
-- **Published job results** — a public read-only Polybox connector mounted at:
-
-  ```text
-  /home/renku/work/results
-  ```
-
-  This can be used to show visitors example outputs from previous runs.
-
 The training script looks for the standard MNIST files in the mounted MNIST folder, for example `train-images-idx3-ubyte.gz` and `train-labels-idx1-ubyte.gz`.
 
 When running locally, the RenkuLab mount path will not exist. In that case, the script automatically streams the same MNIST files directly from Zenodo, so local testing still works.
+
+By default, job outputs are written to `/home/renku/work/output` inside the job workspace. If you want outputs to persist outside the job, add a writable data connector such as Polybox or SWITCHdrive and mount it at `output`.
 
 ## Job launcher setup
 

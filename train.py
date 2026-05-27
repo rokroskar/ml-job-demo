@@ -374,16 +374,21 @@ def main() -> None:
 
     y_true, predictions = evaluate(model, test_loader, device)
     accuracy = accuracy_score(y_true, predictions)
+    elapsed = time.perf_counter() - start_time
+    report = classification_report(y_true, predictions, target_names=class_names, output_dict=True, zero_division=0)
     metrics = {
         "data_source": source,
         "device": str(device),
         "accuracy": accuracy,
+        "macro_f1": report["macro avg"]["f1-score"],
+        "weighted_f1": report["weighted avg"]["f1-score"],
+        "runtime_seconds": elapsed,
         "epochs": args.epochs,
         "train_rows": int(len(X_train)),
         "test_rows": int(len(X_test)),
         "input_dim": int(X.shape[1]),
         "classes": class_names,
-        "classification_report": classification_report(y_true, predictions, target_names=class_names, output_dict=True, zero_division=0),
+        "classification_report": report,
     }
 
     write_csv(output_path / "training_history.csv", history)
@@ -400,6 +405,9 @@ def main() -> None:
 Data source: `{source}`
 
 - Test accuracy: `{accuracy:.4f}`
+- Macro F1 score: `{metrics['macro_f1']:.4f}`
+- Weighted F1 score: `{metrics['weighted_f1']:.4f}`
+- Runtime: `{elapsed:.1f}` seconds (`{elapsed / 60:.2f}` minutes)
 - Epochs: `{args.epochs}`
 - Device: `{device}`
 - Training rows: `{len(X_train)}`
@@ -407,9 +415,11 @@ Data source: `{source}`
 
 Artifacts: `model.pt`, `metrics.json`, `training_history.csv`, `training_curve.png`, `confusion_matrix.png`, `sample_predictions.png`, `predictions.csv`.
 """)
-    elapsed = time.perf_counter() - start_time
-    print(f"Training complete. Artifacts written to: {output_path}")
-    print(f"Final test accuracy: {accuracy:.4f}")
+    print("\n=== Job summary ===")
+    print(f"Artifacts written to: {output_path}")
+    print(f"Test accuracy: {accuracy:.4f}")
+    print(f"Macro F1 score: {metrics['macro_f1']:.4f}")
+    print(f"Weighted F1 score: {metrics['weighted_f1']:.4f}")
     print(f"Total runtime: {elapsed:.1f} seconds ({elapsed / 60:.2f} minutes)")
 
 
