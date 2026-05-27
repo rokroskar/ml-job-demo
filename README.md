@@ -53,8 +53,6 @@ Use this launcher environment configuration pattern:
     "mnist",
     "--mnist-path",
     "/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130",
-    "--mnist-source",
-    "connector",
     "--output-path",
     "/home/renku/work/output",
     "--epochs",
@@ -137,4 +135,4 @@ pip install -r requirements.txt
 python train.py --dataset mnist --output-path public --epochs 1
 ```
 
-In RenkuLab, the launcher should use `--mnist-source connector` so the job fails clearly if the data connector is not mounted.
+In RenkuLab, the default `--mnist-source auto` will use the mounted connector path when it is available; locally it falls back to streaming from Zenodo.

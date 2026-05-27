@@ -17,6 +17,7 @@ import io
 import json
 import random
 import struct
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -332,6 +333,7 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def main() -> None:
+    start_time = time.perf_counter()
     args = parse_args()
     set_seed(args.random_state)
     output_path = Path(args.output_path).expanduser().resolve()
@@ -405,8 +407,10 @@ Data source: `{source}`
 
 Artifacts: `model.pt`, `metrics.json`, `training_history.csv`, `training_curve.png`, `confusion_matrix.png`, `sample_predictions.png`, `predictions.csv`.
 """)
+    elapsed = time.perf_counter() - start_time
     print(f"Training complete. Artifacts written to: {output_path}")
     print(f"Final test accuracy: {accuracy:.4f}")
+    print(f"Total runtime: {elapsed:.1f} seconds ({elapsed / 60:.2f} minutes)")
 
 
 if __name__ == "__main__":
