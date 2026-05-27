@@ -24,17 +24,35 @@ DOI: `10.5281/zenodo.10058130`
 
 MNIST is a classic handwritten-digit image dataset. It is similar in spirit to the smaller optical-digits dataset often used in scikit-learn examples, but it contains larger 28×28 grayscale images.
 
-## Data connector
+## Data connectors
 
-The project links a global DOI data connector named **MNIST dataset**. In the job, RenkuLab mounts it at:
+The project uses data connectors for both inputs and outputs:
 
-```text
-/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130
-```
+- **MNIST dataset** — a global DOI connector for the Zenodo MNIST record. This is mounted read-only at:
 
-The training script looks for the standard MNIST files in that mounted folder, for example `train-images-idx3-ubyte.gz` and `train-labels-idx1-ubyte.gz`.
+  ```text
+  /home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130
+  ```
 
-When running locally, that RenkuLab mount path will not exist. In that case, the script automatically streams the same MNIST files directly from Zenodo, so local testing still works.
+- **Job output storage** — a private writable Polybox connector mounted at:
+
+  ```text
+  /home/renku/work/output
+  ```
+
+  The job writes its generated artifacts here.
+
+- **Published job results** — a public read-only Polybox connector mounted at:
+
+  ```text
+  /home/renku/work/results
+  ```
+
+  This can be used to show visitors example outputs from previous runs.
+
+The training script looks for the standard MNIST files in the mounted MNIST folder, for example `train-images-idx3-ubyte.gz` and `train-labels-idx1-ubyte.gz`.
+
+When running locally, the RenkuLab mount path will not exist. In that case, the script automatically streams the same MNIST files directly from Zenodo, so local testing still works.
 
 ## Job launcher setup
 
