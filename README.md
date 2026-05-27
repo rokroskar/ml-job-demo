@@ -1,142 +1,140 @@
-# RenkuLab non-interactive PyTorch training job demo
+# RenkuLab non-interactive PyTorch MNIST job demo
 
-This repository is a minimal example for running a non-interactive RenkuLab job with build-from-code. It contains only:
+This repository is a minimal example for running a non-interactive RenkuLab job with a Python environment built from code.
+
+It contains:
 
 - `requirements.txt` for the Python environment
-- `Procfile` for the default process/command
 - `train.py` for the training workflow
 
-The default job trains a small PyTorch neural network on the public UCI Optical Recognition of Handwritten Digits dataset. This is the external source of the same family of data used by scikit-learn's built-in digits example.
-
-## Default command
-
-The `Procfile` contains:
-
-```Procfile
-job: python train.py --dataset uci-optdigits --output-path public --epochs 30
-```
-
-Attach or create a `public` folder in the RenkuLab project if you want the generated artifacts to be published.
-
-The default public data URL is:
+The job trains a small PyTorch neural network on MNIST. The input data is provided through a Renku global DOI data connector for this Zenodo record:
 
 ```text
-https://archive.ics.uci.edu/static/public/80/optical+recognition+of+handwritten+digits.zip
+https://zenodo.org/records/10058130
+DOI: 10.5281/zenodo.10058130
 ```
 
-The script itself defaults to the current directory, so it can also be run locally without arguments:
+MNIST is analogous to the earlier handwritten-digits example, but larger: 28x28 grayscale digit images instead of the smaller 8x8 optical-digits dataset.
 
-```bash
-python train.py
+## Data connector
+
+The project links a global DOI data connector:
+
+- Connector: `MNIST dataset`
+- Connector ID: `01KSMPWWWAA5W1NTHWXM4TQ5BC`
+- Project link ID: `01KSMPX86FC61GR89V4BPXAQTJ`
+- Mounted path in the job: `/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130`
+
+The training script expects the standard MNIST IDX files in that mounted directory, for example:
+
+- `train-images-idx3-ubyte` or `train-images-idx3-ubyte.gz`
+- `train-labels-idx1-ubyte` or `train-labels-idx1-ubyte.gz`
+- `t10k-images-idx3-ubyte` or `t10k-images-idx3-ubyte.gz`
+- `t10k-labels-idx1-ubyte` or `t10k-labels-idx1-ubyte.gz`
+
+## How the Renku launcher is configured
+
+The image is built from this repository using `requirements.txt`. The job command is **not** configured with a `Procfile`. Instead, after the image has been built, the Renku launcher uses the CNB launcher directly.
+
+Use this launcher environment configuration pattern:
+
+```json
+{
+  "environment_image_source": "image",
+  "environment_kind": "CUSTOM",
+  "container_image": "<built-image>",
+  "working_directory": "/home/renku/work",
+  "mount_directory": "/home/renku/work",
+  "command": ["/cnb/lifecycle/launcher"],
+  "args": [
+    "python",
+    "/home/renku/work/ml-job-demo/train.py",
+    "--dataset",
+    "mnist",
+    "--mnist-path",
+    "/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130",
+    "--mnist-source",
+    "connector",
+    "--output-path",
+    "/home/renku/work/output",
+    "--epochs",
+    "10"
+  ]
+}
 ```
+
+This avoids relying on Procfile process types and makes the actual job command explicit in the launcher.
 
 ## Outputs
 
-The job writes:
+The job writes the following artifacts to the configured output path:
 
-- `model.pt` with the trained PyTorch model state and metadata
-- `metrics.json` with accuracy and a full classification report
-- `report.md` with a human-readable summary
+- `model.pt`
+- `metrics.json`
+- `report.md`
 - `training_history.csv`
 - `training_curve.png`
 - `confusion_matrix.png`
-- `sample_predictions.png` when using the built-in `sklearn-digits` option
+- `sample_predictions.png`
 - `predictions.csv`
 
-## Using data from a Renku data connector
-
-To highlight RenkuLab data connectors, attach an S3 data connector or another connector to the job and point the script at a mounted CSV file:
-
-```bash
-python train.py \
-  --data-path /path/to/mounted/connector/dataset.csv \
-  --target-column target \
-  --output-path public \
-  --epochs 30
-```
-
-The CSV workflow uses numeric columns as features and the selected target column as the label. For S3, prefer mounting the bucket/prefix as a Renku data connector and passing the mounted file path to `--data-path`.
-
-## Running a RenkuLab job
-
-This project demonstrates how to run non-interactive RenkuLab jobs.
+## Running the example on RenkuLab
 
 1. Open the project: <https://renkulab.io/p/rok.roskar/jobs-example>
 2. Copy the project to your own RenkuLab namespace.
-3. Install the Renku CLI on your local machine, `rnk` (version `>=0.4.0`), by downloading the appropriate binary from <https://github.com/swissdatasciencecenter/renku-cli/releases>.
+3. Install the Renku CLI, `rnk`, from <https://github.com/swissdatasciencecenter/renku-cli>.
 4. Log in to RenkuLab from your terminal:
 
    ```bash
    rnk login
    ```
 
-5. In your copied project, open the job/session launcher you want to use and copy its launcher ID from the URL bar.
-6. Start the non-interactive job from your terminal:
+5. In your copied project, open the job/session launcher and copy its launcher ID from the URL bar.
+6. Start the non-interactive job:
 
    ```bash
    rnk job start <LAUNCHER_ID>
    ```
 
-The launcher uses the command from the `Procfile`:
-
-```bash
-python train.py --dataset uci-optdigits --output-path public --epochs 30
-```
-
 Helpful commands:
 
-* To check the job: `rnk job list`
-* To fetch the logs: `rnk job logs <JOB_NAME>`
+```bash
+rnk job list
+rnk job logs <JOB_NAME>
+```
 
-When the job finishes, the generated model, metrics, plots, and report are written to the `public/` output folder.
+When the job finishes, the generated model, metrics, plots, and report are written to the output folder configured in the launcher.
 
-### Image configuration
+## Note on rebuilding the image
 
-The linked [repository](https://github.com/rokroskar/ml-job-demo) includes a python
-`requirements.txt` and a `Procfile` - these are picked up by the image build process to
-
-* install dependencies (`requirements.txt`)
-* configure the job command (`Procfile`)
-
-You can use a similar setup in your own projects to specify how the job should
-run and with which packages.
-
-### Note on launchers
-
-The launcher in the project was built from code but then converted to an "external"
-environment in order to specify the entrypoint. If you need to rebuild the image,
-you have to switch it back to "build from code", rebuild, and then switch back
-to "external" to set the entrypoint.
-
+The current launcher uses a built image as an external/custom image so that the command and args can be set explicitly. If you change `requirements.txt` and need to rebuild the image, switch the launcher back to build-from-code, rebuild, then switch it back to an external/custom image using the built image and the command/args configuration above.
 
 ## Current limitations
 
-Non-interactive jobs are currently an alpha feature - we are making them available
-but hidden in order to gather experience and feedback.
+Non-interactive jobs are currently an alpha feature. Known limitations:
 
-Current known limitations:
-
-* logs will not persist for a predictable amount of time; if the node that the
-  job ran on is removed because of auto-scaling, the logs are gone
-
-* only run one job per launcher
-
-* no dynamic modifications to command line arguments from `rnk` - they have to
-  be made in the launcher itself
-
-* no launcher configuration from the CLI; you must use the UI to configure the
-  launcher
-
-* no support in the UI - this is coming in June, so stay tuned!
-
-* the built image will always include the frontend even if not using it; we
-  recommend using ttyd as it is very minimal and can be useful for debugging
+- logs may not persist for a predictable amount of time
+- only run one job per launcher
+- command-line arguments are configured in the launcher, not dynamically from `rnk`
+- launcher configuration is currently done in the UI/API rather than the CLI
+- UI support for non-interactive jobs is still evolving
+- the built image includes the selected frontend even if the job does not use it
 
 ## Local test
+
+The default `--mnist-path` is the RenkuLab data connector mount:
+
+```text
+/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130
+```
+
+For local testing, that mount will usually not exist, so the script can stream the MNIST files directly from Zenodo when the connector mount is not present:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python train.py --dataset uci-optdigits --output-path public --epochs 30
+python train.py --dataset mnist --output-path public --epochs 1
 ```
+
+In RenkuLab, the launcher should use `--mnist-source connector` so the job fails clearly if the data connector is not mounted.

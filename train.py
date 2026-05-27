@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """Train a small PyTorch classifier and write artifacts to an output folder.
 
-Default dataset: scikit-learn's built-in handwritten digits dataset (8x8 grayscale
-images, classes 0-9), so the RenkuLab job does not need to download data.
+The RenkuLab job is configured to read MNIST from a mounted Zenodo data
+connector, not by downloading data in the training script. The expected mounted
+files are the standard IDX files from Zenodo record 10.5281/zenodo.10058130.
 
-Default external dataset: the public UCI Optical Recognition of Handwritten
-Digits dataset. Optional connector dataset: pass --data-path and --target-column
-for a CSV mounted from a Renku data connector. The CSV should contain numeric
-feature columns and a label column; this is useful for S3/data-connector demos
-without requiring the job to know about object-store credentials.
+The script also keeps a small CSV mode for trying other connector-mounted data.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import io
 import json
 import random
+import struct
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -55,19 +54,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-path", default=".", help="Directory where artifacts are written.")
     parser.add_argument(
         "--dataset",
-        choices=["uci-optdigits", "sklearn-digits"],
-        default="uci-optdigits",
-        help="Dataset to use when --data-path is not provided.",
+        choices=["mnist", "uci-optdigits", "sklearn-digits"],
+        default="mnist",
+        help="Dataset to use when --data-path is not provided. Use 'mnist' with a mounted Zenodo data connector.",
+    )
+    parser.add_argument(
+        "--mnist-path",
+        default="/home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130",
+        help="Directory containing the mounted MNIST IDX files from the Zenodo data connector."
+    )
+    parser.add_argument(
+        "--mnist-source",
+        choices=["auto", "connector", "zenodo"],
+        default="auto",
+        help=(
+            "Where to load MNIST from. 'connector' requires --mnist-path to contain the mounted files; "
+            "'zenodo' streams files directly from Zenodo; 'auto' uses the connector path if present "
+            "and otherwise falls back to Zenodo streaming for local runs."
+        ),
     )
     parser.add_argument(
         "--data-url",
         default="https://archive.ics.uci.edu/static/public/80/optical+recognition+of+handwritten+digits.zip",
-        help="Public UCI optdigits ZIP file used with --dataset uci-optdigits.",
+        help="Fallback public UCI optdigits ZIP file used with --dataset uci-optdigits.",
     )
     parser.add_argument("--data-path", default=None, help="Optional CSV file mounted from a data connector.")
     parser.add_argument("--target-column", default=None, help="Target column in --data-path. Required when --data-path is used.")
-    parser.add_argument("--epochs", type=int, default=30, help="Training epochs.")
-    parser.add_argument("--batch-size", type=int, default=64, help="Mini-batch size.")
+    parser.add_argument("--epochs", type=int, default=10, help="Training epochs.")
+    parser.add_argument("--batch-size", type=int, default=128, help="Mini-batch size.")
     parser.add_argument("--learning-rate", type=float, default=1e-3, help="Adam learning rate.")
     parser.add_argument("--random-state", type=int, default=42, help="Random seed.")
     return parser.parse_args()
@@ -77,6 +91,88 @@ def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+def open_maybe_gzip(path: Path):
+    return gzip.open(path, "rb") if path.suffix == ".gz" else path.open("rb")
+
+
+def find_file(root: Path, *names: str) -> Path:
+    for name in names:
+        candidate = root / name
+        if candidate.exists():
+            return candidate
+    available = ", ".join(sorted(p.name for p in root.iterdir())) if root.exists() else "<directory does not exist>"
+    raise FileNotFoundError(f"None of {names} found in {root}. Available files: {available}")
+
+
+def read_idx_images_from_bytes(payload: bytes, source: str) -> np.ndarray:
+    with gzip.GzipFile(fileobj=io.BytesIO(payload)) if source.endswith(".gz") else io.BytesIO(payload) as f:
+        magic, n_images, rows, cols = struct.unpack(">IIII", f.read(16))
+        if magic != 2051:
+            raise ValueError(f"{source} is not an IDX image file, magic={magic}")
+        data = np.frombuffer(f.read(), dtype=np.uint8).reshape(n_images, rows, cols)
+    return data
+
+
+def read_idx_labels_from_bytes(payload: bytes, source: str) -> np.ndarray:
+    with gzip.GzipFile(fileobj=io.BytesIO(payload)) if source.endswith(".gz") else io.BytesIO(payload) as f:
+        magic, n_labels = struct.unpack(">II", f.read(8))
+        if magic != 2049:
+            raise ValueError(f"{source} is not an IDX label file, magic={magic}")
+        labels = np.frombuffer(f.read(), dtype=np.uint8)
+    if len(labels) != n_labels:
+        raise ValueError(f"Expected {n_labels} labels in {source}, found {len(labels)}")
+    return labels.astype(np.int64)
+
+
+def read_idx_images(path: Path) -> np.ndarray:
+    return read_idx_images_from_bytes(path.read_bytes(), str(path))
+
+
+def read_idx_labels(path: Path) -> np.ndarray:
+    return read_idx_labels_from_bytes(path.read_bytes(), str(path))
+
+
+def mnist_files_available(root: Path) -> bool:
+    required = [
+        ("train-images-idx3-ubyte", "train-images-idx3-ubyte.gz"),
+        ("train-labels-idx1-ubyte", "train-labels-idx1-ubyte.gz"),
+        ("t10k-images-idx3-ubyte", "t10k-images-idx3-ubyte.gz"),
+        ("t10k-labels-idx1-ubyte", "t10k-labels-idx1-ubyte.gz"),
+    ]
+    return root.exists() and all(any((root / name).exists() for name in names) for names in required)
+
+
+def assemble_mnist(train_images: np.ndarray, train_labels: np.ndarray, test_images: np.ndarray, test_labels: np.ndarray) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+    images = np.concatenate([train_images, test_images])
+    y = np.concatenate([train_labels, test_labels])
+    X = images.reshape(len(images), -1).astype(np.float32)
+    return X, y, [str(i) for i in range(10)], images
+
+
+def load_mnist_from_connector(mnist_path: str) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+    root = Path(mnist_path).expanduser()
+    train_images = read_idx_images(find_file(root, "train-images-idx3-ubyte", "train-images-idx3-ubyte.gz"))
+    train_labels = read_idx_labels(find_file(root, "train-labels-idx1-ubyte", "train-labels-idx1-ubyte.gz"))
+    test_images = read_idx_images(find_file(root, "t10k-images-idx3-ubyte", "t10k-images-idx3-ubyte.gz"))
+    test_labels = read_idx_labels(find_file(root, "t10k-labels-idx1-ubyte", "t10k-labels-idx1-ubyte.gz"))
+    return assemble_mnist(train_images, train_labels, test_images, test_labels)
+
+
+def download_zenodo_file(name: str) -> bytes:
+    url = f"https://zenodo.org/records/10058130/files/{name}?download=1"
+    print(f"Streaming {url}", flush=True)
+    with urllib.request.urlopen(url, timeout=120) as response:
+        return response.read()
+
+
+def load_mnist_from_zenodo() -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+    train_images = read_idx_images_from_bytes(download_zenodo_file("train-images-idx3-ubyte.gz"), "train-images-idx3-ubyte.gz")
+    train_labels = read_idx_labels_from_bytes(download_zenodo_file("train-labels-idx1-ubyte.gz"), "train-labels-idx1-ubyte.gz")
+    test_images = read_idx_images_from_bytes(download_zenodo_file("t10k-images-idx3-ubyte.gz"), "t10k-images-idx3-ubyte.gz")
+    test_labels = read_idx_labels_from_bytes(download_zenodo_file("t10k-labels-idx1-ubyte.gz"), "t10k-labels-idx1-ubyte.gz")
+    return assemble_mnist(train_images, train_labels, test_images, test_labels)
 
 
 def load_connector_csv(data_path: str, target_column: str) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -111,12 +207,7 @@ def load_uci_optdigits(url: str) -> tuple[np.ndarray, np.ndarray, list[str]]:
 
     if url.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            # The UCI ZIP contains optdigits.tra and optdigits.tes. Use both so
-            # the example trains on the full public dataset snapshot.
-            text = "\n".join(
-                archive.read(name).decode("utf-8").strip()
-                for name in ["optdigits.tra", "optdigits.tes"]
-            )
+            text = "\n".join(archive.read(name).decode("utf-8").strip() for name in ["optdigits.tra", "optdigits.tes"])
     else:
         text = payload.decode("utf-8")
 
@@ -126,18 +217,29 @@ def load_uci_optdigits(url: str) -> tuple[np.ndarray, np.ndarray, list[str]]:
     return X, y, [str(i) for i in sorted(np.unique(y))]
 
 
-def load_data(
-    data_path: Optional[str], target_column: Optional[str], dataset: str, data_url: str
-) -> tuple[np.ndarray, np.ndarray, list[str], str, Optional[np.ndarray]]:
-    if data_path:
-        if not target_column:
+def load_data(args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray, list[str], str, Optional[np.ndarray]]:
+    if args.data_path:
+        if not args.target_column:
             raise ValueError("--target-column is required when --data-path is provided")
-        X, y, class_names = load_connector_csv(data_path, target_column)
-        return X, y, class_names, str(data_path), None
+        X, y, class_names = load_connector_csv(args.data_path, args.target_column)
+        return X, y, class_names, str(args.data_path), None
 
-    if dataset == "uci-optdigits":
-        X, y, class_names = load_uci_optdigits(data_url)
-        return X, y, class_names, data_url, None
+    if args.dataset == "mnist":
+        root = Path(args.mnist_path).expanduser()
+        if args.mnist_source in ("auto", "connector") and mnist_files_available(root):
+            X, y, class_names, images = load_mnist_from_connector(args.mnist_path)
+            return X, y, class_names, f"Zenodo MNIST data connector at {args.mnist_path}", images
+        if args.mnist_source == "connector":
+            # Re-run the connector loader to produce a detailed missing-file error.
+            X, y, class_names, images = load_mnist_from_connector(args.mnist_path)
+            return X, y, class_names, f"Zenodo MNIST data connector at {args.mnist_path}", images
+        print(f"MNIST files not found at {args.mnist_path}; streaming from Zenodo for this run.", flush=True)
+        X, y, class_names, images = load_mnist_from_zenodo()
+        return X, y, class_names, "Zenodo MNIST record 10.5281/zenodo.10058130 streamed over HTTPS", images
+
+    if args.dataset == "uci-optdigits":
+        X, y, class_names = load_uci_optdigits(args.data_url)
+        return X, y, class_names, args.data_url, None
 
     digits = load_digits()
     return (
@@ -167,21 +269,21 @@ def draw_training_curve(history: list[dict], path: Path) -> None:
     draw.rectangle((pad, pad, width - pad, height - pad), outline="black")
     draw.text((pad, 20), "Training loss (blue) and test accuracy (green)", fill="black")
 
-    def points(key: str, values: list[float]) -> list[tuple[int, int]]:
+    def points(key: str) -> list[tuple[int, int]]:
+        values = [r[key] for r in history]
         lo, hi = min(values), max(values)
         if hi == lo:
             hi = lo + 1.0
-        result = []
-        for i, row in enumerate(history):
-            x = pad + int(i * (width - 2 * pad) / max(1, len(history) - 1))
-            y = height - pad - int((row[key] - lo) * (height - 2 * pad) / (hi - lo))
-            result.append((x, y))
-        return result
+        return [
+            (
+                pad + int(i * (width - 2 * pad) / max(1, len(history) - 1)),
+                height - pad - int((row[key] - lo) * (height - 2 * pad) / (hi - lo)),
+            )
+            for i, row in enumerate(history)
+        ]
 
-    loss_values = [r["train_loss"] for r in history]
-    acc_values = [r["test_accuracy"] for r in history]
-    draw.line(points("train_loss", loss_values), fill="blue", width=3)
-    draw.line(points("test_accuracy", acc_values), fill="green", width=3)
+    draw.line(points("train_loss"), fill="blue", width=3)
+    draw.line(points("test_accuracy"), fill="green", width=3)
     img.save(path)
 
 
@@ -199,9 +301,8 @@ def draw_confusion_matrix(y_true: np.ndarray, predictions: np.ndarray, class_nam
         for j in range(len(class_names)):
             value = int(cm[i, j])
             shade = 255 - int(220 * value / max_value)
-            color = (shade, shade, 255)
             x0, y0 = label + j * cell, label + i * cell
-            draw.rectangle((x0, y0, x0 + cell, y0 + cell), fill=color, outline="gray")
+            draw.rectangle((x0, y0, x0 + cell, y0 + cell), fill=(shade, shade, 255), outline="gray")
             draw.text((x0 + 12, y0 + 15), str(value), fill="black")
     img.save(path)
 
@@ -209,16 +310,17 @@ def draw_confusion_matrix(y_true: np.ndarray, predictions: np.ndarray, class_nam
 def draw_sample_predictions(images: Optional[np.ndarray], y_true: np.ndarray, predictions: np.ndarray, test_indices: np.ndarray, path: Path) -> None:
     if images is None:
         return
-    scale, tile, margin = 20, 160, 20
+    scale, tile, margin = 6, 190, 20
     img = Image.new("RGB", (4 * tile, 4 * tile), "white")
     draw = ImageDraw.Draw(img)
     for n, (idx, actual, predicted) in enumerate(zip(test_indices[:16], y_true[:16], predictions[:16])):
         x, y = (n % 4) * tile, (n // 4) * tile
-        digit = (255 - (images[idx] / images[idx].max() * 255)).astype(np.uint8)
-        digit_img = Image.fromarray(digit, mode="L").resize((8 * scale, 8 * scale), Image.Resampling.NEAREST).convert("RGB")
+        arr = images[idx]
+        digit = (255 - (arr / max(1, arr.max()) * 255)).astype(np.uint8)
+        digit_img = Image.fromarray(digit, mode="L").resize((digit.shape[1] * scale, digit.shape[0] * scale), Image.Resampling.NEAREST).convert("RGB")
         img.paste(digit_img, (x, y))
         color = "green" if actual == predicted else "red"
-        draw.text((x + margin, y + 8 * scale + 3), f"true={actual} pred={predicted}", fill=color)
+        draw.text((x + margin, y + digit_img.height + 3), f"true={actual} pred={predicted}", fill=color)
     img.save(path)
 
 
@@ -235,9 +337,9 @@ def main() -> None:
     output_path = Path(args.output_path).expanduser().resolve()
     output_path.mkdir(parents=True, exist_ok=True)
 
-    X, y, class_names, source, images = load_data(args.data_path, args.target_column, args.dataset, args.data_url)
+    X, y, class_names, source, images = load_data(args)
     indices = np.arange(len(X))
-    X_train, X_test, y_train, y_test, idx_train, idx_test = train_test_split(
+    X_train, X_test, y_train, y_test, _, idx_test = train_test_split(
         X, y, indices, test_size=0.25, random_state=args.random_state, stratify=y
     )
     scaler = StandardScaler()
@@ -291,7 +393,7 @@ def main() -> None:
     draw_confusion_matrix(y_true, predictions, class_names, output_path / "confusion_matrix.png")
     draw_sample_predictions(images, y_true, predictions, idx_test, output_path / "sample_predictions.png")
 
-    (output_path / "report.md").write_text(f"""# PyTorch handwritten-digit training job
+    (output_path / "report.md").write_text(f"""# PyTorch MNIST training job
 
 Data source: `{source}`
 
