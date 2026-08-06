@@ -423,6 +423,7 @@ Artifacts: `model.pt`, `metrics.json`, `training_history.csv`, `training_curve.p
     print(f"Weighted F1 score: {metrics['weighted_f1']:.4f}")
     print(f"Total runtime: {elapsed:.1f} seconds ({elapsed / 60:.2f} minutes)")
 
-
+    time.sleep(30)
+    
 if __name__ == "__main__":
     main()
