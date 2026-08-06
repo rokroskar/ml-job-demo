@@ -15,6 +15,7 @@ import csv
 import gzip
 import io
 import json
+import os
 import random
 import struct
 import time
@@ -336,7 +337,7 @@ def main() -> None:
     start_time = time.perf_counter()
     args = parse_args()
     set_seed(args.random_state)
-    output_path = Path(args.output_path).expanduser().resolve()
+    output_path = Path(args.output_path).expanduser().resolve() / os.getenv("RENKU_SUBMISSION_ID", "mnist-training") 
     output_path.mkdir(parents=True, exist_ok=True)
 
     X, y, class_names, source, images = load_data(args)
