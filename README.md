@@ -1,6 +1,6 @@
-# RenkuLab non-interactive PyTorch MNIST job demo
+# RenkuLab Job demo
 
-This project demonstrates how to run a non-interactive training job on RenkuLab.
+This project demonstrates how use Renku Jobs on RenkuLab. 
 It trains a small PyTorch neural network on the MNIST handwritten-digits dataset and writes the trained model, metrics, plots, and predictions to an output folder.
 
 The project is intentionally small. The repository only contains:
@@ -14,7 +14,9 @@ This example combines three RenkuLab features:
 
 1. **Build from code** — RenkuLab builds a Python image from this repository.
 2. **Data connectors** — the MNIST input data is mounted from Zenodo through a Renku DOI data connector.
-3. **Non-interactive jobs** — the training script runs as a batch job instead of an interactive session.
+3. **Renku Jobs** — the training script runs as a job instead of an interactive session.
+
+## Data connector
 
 The MNIST data comes from this Zenodo record:
 
@@ -22,13 +24,7 @@ The MNIST data comes from this Zenodo record:
 
 DOI: `10.5281/zenodo.10058130`
 
-MNIST is a classic handwritten-digit image dataset. It is similar in spirit to the smaller optical-digits dataset often used in scikit-learn examples, but it contains larger 28×28 grayscale images.
-
-## Data connector
-
-The project uses one input data connector:
-
-- **MNIST dataset** — a global DOI connector for the Zenodo MNIST record. This is mounted read-only at:
+This is mounted read-only at:
 
   ```text
   /home/renku/work/mnist-dataset-doi-10.5281-zenodo.10058130
@@ -51,7 +47,7 @@ python /home/renku/work/ml-job-demo/train.py \
   --epochs 10
 ```
 
-The image entrypoint is set to `python /home/renku/work/ml-job-demo/train.py` so the job arguments (e.g. the number of epochs) can easily 
+The job container's entrypoint is set to `python /home/renku/work/ml-job-demo/train.py` so the job arguments (e.g. the number of epochs) can easily 
 be changed when the job is started. 
 
 ## Outputs
@@ -85,4 +81,4 @@ pip install -r requirements.txt
 python train.py --dataset mnist --output-path public --epochs 1
 ```
 
-Locally, the script will stream MNIST from Zenodo if the RenkuLab connector mount is not available.
+When run locally, the script will stream MNIST from Zenodo if the RenkuLab connector mount is not available.
